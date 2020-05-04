@@ -5,15 +5,16 @@ Generating data from the CarRacing gym environment.
 import argparse
 from os.path import join, exists
 import gym
+import copy
 import numpy as np
 from utils.misc import sample_continuous_policy
 from carnav.env import CarNav
 
-def generate_data(rollouts, data_dir, noise_type): # pylint: disable=R0914
+def generate_data(rollouts, data_dir, noise_type, **carnav_kwargs): # pylint: disable=R0914
     """ Generates data """
     assert exists(data_dir), "The data directory does not exist..."
 
-    env = CarNav(step_size=32)
+    env = CarNav(**carnav_kwargs)
     seq_len = 1000
 
     for i in range(rollouts):
@@ -53,6 +54,19 @@ if __name__ == "__main__":
     parser.add_argument('--dir', type=str, help="Where to place rollouts")
     parser.add_argument('--policy', type=str, choices=['white', 'brown'],
                         help='Noise type used for action sampling.',
-                        default='brown')
+                        default='white')
+
+    gen_args = ["rollouts", "dir", "policy"]
+
+    parser.add_argument('--width', default= 256, type=int)
+    parser.add_argument('--height', default= 256, type=int)
+    parser.add_argument('--step-size',default=10, type=int)
+    parser.add_argument('--reset-location',default="random", type=str)
+    parser.add_argument('--game_id', default=0, type=int)
+    parser.add_argument('--pattern', default="-", type=str)
+
     args = parser.parse_args()
-    generate_data(args.rollouts, args.dir, args.policy)
+    carnav_kwargs = copy.deepcopy(args)
+    for k in gen_args:
+        del carnav_kwargs.__dict__[k]
+    generate_data(args.rollouts, args.dir, args.policy, **carnav_kwargs.__dict__)

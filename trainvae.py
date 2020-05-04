@@ -45,7 +45,7 @@ device = torch.device("cuda" if cuda else "cpu")
 transform_train = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((RED_SIZE, RED_SIZE)),
-    transforms.RandomHorizontalFlip(),
+    # transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
 ])
 

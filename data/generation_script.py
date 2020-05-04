@@ -15,7 +15,7 @@ parser.add_argument('--rootdir', type=str, help="Directory to store rollout "
 parser.add_argument('--policy', type=str, choices=['brown', 'white'],
                     help="Directory to store rollout directories of each thread",
                     default='white')
-args = parser.parse_args()
+args, carnav_args = parser.parse_known_args()
 
 rpt = args.rollouts // args.threads + 1
 
@@ -25,12 +25,13 @@ def _threaded_generation(i):
     #cmd = ['xvfb-run', '-s', '"-screen 0 1400x900x24"']
     #cmd += ['--server-num={}'.format(i + 1)]
     cmd = ["python", "-m", "data.carnav_gen", "--dir",
-            tdir, "--rollouts", str(rpt), "--policy", args.policy]
+            tdir, "--rollouts", str(rpt), "--policy", args.policy, *carnav_args]
     cmd = " ".join(cmd)
     print(cmd)
     call(cmd, shell=True)
     return True
 
+# _threaded_generation(0)
 
 
 with Pool(args.threads) as p:
