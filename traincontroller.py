@@ -16,7 +16,8 @@ import cma
 from models import Controller
 from tqdm import tqdm
 import numpy as np
-from utils.misc import RolloutGenerator, ASIZE, RSIZE, LSIZE
+import copy
+from utils.misc import RolloutGenerator, ASIZE, RSIZE, LSIZE, NUM_ACTIONS
 from utils.misc import load_parameters
 from utils.misc import flatten_parameters
 
@@ -32,6 +33,22 @@ parser.add_argument('--display', action='store_true', help="Use progress bars if
                     "specified.")
 parser.add_argument('--max-workers', type=int, help='Maximum number of workers.',
                     default=32)
+
+gen_args = ["logdir",'pop_size','target_return','max_workers', 'display','n_samples']
+
+parser.add_argument('--width', default=64, type=int)
+parser.add_argument('--height', default=64, type=int)
+parser.add_argument('--step-size', default=5, type=int)
+parser.add_argument('--reset-location', default="random", type=str)
+parser.add_argument('--game_id', default=0, type=int)
+parser.add_argument('--pattern', default="-", type=str)
+
+args = parser.parse_args()
+carnav_kwargs = copy.deepcopy(args)
+for k in gen_args:
+    del carnav_kwargs.__dict__[k]
+carnav_kwargs = carnav_kwargs.__dict__
+
 args = parser.parse_args()
 
 # Max number of workers. M
@@ -59,7 +76,7 @@ if not exists(ctrl_dir):
 ################################################################################
 #                           Thread routines                                    #
 ################################################################################
-def slave_routine(p_queue, r_queue, e_queue, p_index):
+def slave_routine(p_queue, r_queue, e_queue, p_index, **carnav_kwargs):
     """ Thread routine.
 
     Threads interact with p_queue, the parameters queue, r_queue, the result
@@ -82,15 +99,24 @@ def slave_routine(p_queue, r_queue, e_queue, p_index):
     :args p_index: the process index
     """
     # init routine
-    gpu = p_index % torch.cuda.device_count()
-    device = torch.device('cuda:{}'.format(gpu) if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # redirect streams
     sys.stdout = open(join(tmp_dir, str(getpid()) + '.out'), 'a')
     sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
 
     with torch.no_grad():
-        r_gen = RolloutGenerator(args.logdir, device, time_limit)
+        r_gen = RolloutGenerator(args.logdir, device, time_limit, **carnav_kwargs)
+
+    # """ delete"""
+    # controller = Controller(LSIZE, RSIZE, NUM_ACTIONS)  # delete this
+    # parameters = controller.parameters()
+    # es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1,
+    #                               {'popsize': 2})
+    # solutions = es.ask()[0]
+    # r = r_gen.rollout(solutions)
+    # return r
+    # """this"""
 
         while e_queue.empty():
             if p_queue.empty():
@@ -107,8 +133,10 @@ p_queue = Queue()
 r_queue = Queue()
 e_queue = Queue()
 
+
+#slave_routine(p_queue, r_queue, e_queue, 0, **carnav_kwargs) # delete this
 for p_index in range(num_workers):
-    Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index)).start()
+    Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index), kwargs=carnav_kwargs).start()
 
 
 ################################################################################
@@ -143,7 +171,7 @@ def evaluate(solutions, results, rollouts=100):
 ################################################################################
 #                           Launch CMA                                         #
 ################################################################################
-controller = Controller(LSIZE, RSIZE, ASIZE)  # dummy instance
+controller = Controller(LSIZE, RSIZE, NUM_ACTIONS)  # dummy instance
 
 # define current best and load parameters
 cur_best = None
@@ -191,7 +219,7 @@ while not es.stop():
     es.disp()
 
     # evaluation and saving
-    if epoch % log_step == log_step - 1:
+    if epoch % log_step == 0:
         best_params, best, std_best = evaluate(solutions, r_list)
         print("Current evaluation: {}".format(best))
         if not cur_best or cur_best > best:
