@@ -154,7 +154,7 @@ class RolloutGenerator(object):
         """
         _, latent_mu, _ = self.vae(obs) # or put it here
         action = self.controller(latent_mu, hidden[0])
-        _, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
+        _, _, _, _, _, next_hidden = self.mdrnn(action.float(), latent_mu, hidden)
         return action.squeeze().cpu().numpy(), next_hidden
 
     def rollout(self, params, render=False):
