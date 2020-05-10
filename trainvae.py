@@ -29,6 +29,8 @@ parser.add_argument('--noreload', action='store_true',
                     help='Best model is not reloaded if specified')
 parser.add_argument('--nosamples', action='store_true',
                     help='Does not save samples during training if specified')
+parser.add_argument('--num-val-rollouts',type=int, default=600,
+                    help='the number of rollouts to hold out for validation')
 
 
 args = parser.parse_args()
@@ -49,20 +51,22 @@ transform_train = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-transform_test = transforms.Compose([
+transform_val = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((RED_SIZE, RED_SIZE)),
     transforms.ToTensor(),
 ])
 
 dataset_train = RolloutObservationDataset('datasets/carnav',
-                                          transform_train, train=True)
-dataset_test = RolloutObservationDataset('datasets/carnav',
-                                         transform_test, train=False)
+                                          transform_train, train=True,
+                                          num_val_rollouts=args.num_val_rollouts)
+dataset_val = RolloutObservationDataset('datasets/carnav',
+                                         transform_val, train=False,
+                                         num_val_rollouts=args.num_val_rollouts)
 train_loader = torch.utils.data.DataLoader(
     dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
-test_loader = torch.utils.data.DataLoader(
-    dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=2)
+val_loader = torch.utils.data.DataLoader(
+    dataset_val, batch_size=args.batch_size, shuffle=True, num_workers=2)
 
 
 model = VAE(3, LSIZE).to(device)
@@ -106,20 +110,20 @@ def train(epoch):
         epoch, train_loss / len(train_loader.dataset)))
 
 
-def test():
-    """ One test epoch """
+def val():
+    """ One val epoch """
     model.eval()
-    dataset_test.load_next_buffer()
-    test_loss = 0
+    dataset_val.load_next_buffer()
+    val_loss = 0
     with torch.no_grad():
-        for data in test_loader:
+        for data in val_loader:
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
-            test_loss += loss_function(recon_batch, data, mu, logvar).item()
+            val_loss += loss_function(recon_batch, data, mu, logvar).item()
 
-    test_loss /= len(test_loader.dataset)
-    print('====> Test set loss: {:.4f}'.format(test_loss))
-    return test_loss
+    val_loss /= len(val_loader.dataset)
+    print('====> val set loss: {:.4f}'.format(val_loss))
+    return val_loss
 
 # check vae dir exists, if not, create it
 vae_dir = join(args.logdir, 'vae')
@@ -129,9 +133,9 @@ if not exists(vae_dir):
 
 reload_file = join(vae_dir, 'best.tar')
 if not args.noreload and exists(reload_file):
-    state = torch.load(reload_file)
+    state = torch.load(reload_file,map_location=device)
     print("Reloading model at epoch {}"
-          ", with test error {}".format(
+          ", with val error {}".format(
               state['epoch'],
               state['precision']))
     model.load_state_dict(state['state_dict'])
@@ -144,21 +148,21 @@ cur_best = None
 
 for epoch in range(1, args.epochs + 1):
     train(epoch)
-    test_loss = test()
-    scheduler.step(test_loss)
-    earlystopping.step(test_loss)
+    val_loss = val()
+    scheduler.step(val_loss)
+    earlystopping.step(val_loss)
 
     # checkpointing
     best_filename = join(vae_dir, 'best.tar')
     filename = join(vae_dir, 'checkpoint.tar')
-    is_best = not cur_best or test_loss < cur_best
+    is_best = not cur_best or val_loss < cur_best
     if is_best:
-        cur_best = test_loss
+        cur_best = val_loss
 
     save_checkpoint({
         'epoch': epoch,
         'state_dict': model.state_dict(),
-        'precision': test_loss,
+        'precision': val_loss,
         'optimizer': optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
         'earlystopping': earlystopping.state_dict()
