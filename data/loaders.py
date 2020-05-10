@@ -8,7 +8,7 @@ import torch.utils.data
 import numpy as np
 
 class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-public-methods
-    def __init__(self, root, transform, buffer_size=200, train=True): # pylint: disable=too-many-arguments
+    def __init__(self, root, transform, buffer_size=200, train=True, num_val_rollouts=600): # pylint: disable=too-many-arguments
         self._transform = transform
 
         self._files = [
@@ -17,9 +17,9 @@ class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-publi
             for ssd in listdir(join(root, sd))]
 
         if train:
-            self._files = self._files[:-600]
+            self._files = self._files[:-num_val_rollouts]
         else:
-            self._files = self._files[-600:]
+            self._files = self._files[-num_val_rollouts:]
 
         self._cum_size = None
         self._buffer = None
@@ -98,8 +98,8 @@ class RolloutSequenceDataset(_RolloutDataset): # pylint: disable=too-few-public-
     :args transform: transformation of the observations
     :args train: if True, train data, else test
     """
-    def __init__(self, root, seq_len, transform, buffer_size=200, train=True): # pylint: disable=too-many-arguments
-        super().__init__(root, transform, buffer_size, train)
+    def __init__(self, root, seq_len, transform, buffer_size=200, train=True, num_val_rollouts=600): # pylint: disable=too-many-arguments
+        super().__init__(root, transform, buffer_size, train, num_val_rollouts)
         self._seq_len = seq_len
 
     def _get_data(self, data, seq_index):
@@ -107,7 +107,7 @@ class RolloutSequenceDataset(_RolloutDataset): # pylint: disable=too-few-public-
         obs_data = self._transform(obs_data.astype(np.float32))
         obs, next_obs = obs_data[:-1], obs_data[1:]
         action = data['actions'][seq_index+1:seq_index + self._seq_len + 1]
-        action = action.astype(np.float32)
+        action = np.expand_dims(action.astype(np.float32), axis=2)
         reward, terminal = [data[key][seq_index+1:
                                       seq_index + self._seq_len + 1].astype(np.float32)
                             for key in ('rewards', 'terminals')]

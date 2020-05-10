@@ -5,15 +5,11 @@ import torch
 from torchvision import transforms
 import numpy as np
 from models import MDRNNCell, VAE, Controller
-import gym
-import gym.envs.box2d
-
-# A bit dirty: manually change size of car racing env
-gym.envs.box2d.car_racing.STATE_W, gym.envs.box2d.car_racing.STATE_H = 64, 64
+from carnav.env import CarNav
 
 # Hardcoded for now
-ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE =\
-    3, 32, 256, 64, 64
+ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE, NUM_ACTIONS =\
+    1, 32, 256, 64, 64, 4
 
 # Same
 transform = transforms.Compose([
@@ -103,7 +99,7 @@ class RolloutGenerator(object):
     :attr device: device used to run VAE, MDRNN and Controller
     :attr time_limit: rollouts have a maximum of time_limit timesteps
     """
-    def __init__(self, mdir, device, time_limit):
+    def __init__(self, mdir, device, time_limit, **carnav_kwargs):
         """ Build vae, rnn, controller and environment. """
         # Loading world model and vae
         vae_file, rnn_file, ctrl_file = \
@@ -128,7 +124,7 @@ class RolloutGenerator(object):
         self.mdrnn.load_state_dict(
             {k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
 
-        self.controller = Controller(LSIZE, RSIZE, ASIZE).to(device)
+        self.controller = Controller(LSIZE, RSIZE, NUM_ACTIONS).to(device)
 
         # load controller if it was previously saved
         if exists(ctrl_file):
@@ -137,7 +133,7 @@ class RolloutGenerator(object):
                 ctrl_state['reward']))
             self.controller.load_state_dict(ctrl_state['state_dict'])
 
-        self.env = gym.make('CarRacing-v0')
+        self.env = CarNav(**carnav_kwargs)
         self.device = device
 
         self.time_limit = time_limit
@@ -156,7 +152,7 @@ class RolloutGenerator(object):
             - action: 1D np array
             - next_hidden (1 x 256) torch tensor
         """
-        _, latent_mu, _ = self.vae(obs)
+        _, latent_mu, _ = self.vae(obs) # or put it here
         action = self.controller(latent_mu, hidden[0])
         _, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
         return action.squeeze().cpu().numpy(), next_hidden
@@ -177,8 +173,8 @@ class RolloutGenerator(object):
 
         obs = self.env.reset()
 
-        # This first render is required !
-        self.env.render()
+        # # This first render is required !
+        # self.env.render()
 
         hidden = [
             torch.zeros(1, RSIZE).to(self.device)
@@ -189,10 +185,10 @@ class RolloutGenerator(object):
         while True:
             obs = transform(obs).unsqueeze(0).to(self.device)
             action, hidden = self.get_action_and_transition(obs, hidden)
-            obs, reward, done, _ = self.env.step(action)
+            obs, reward, done, _ = self.env.step(action) # put hallucinating part here
 
-            if render:
-                self.env.render()
+            # if render:
+            #     self.env.render()
 
             cumulative += reward
             if done or i > self.time_limit:
